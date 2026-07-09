@@ -289,4 +289,11 @@ impl Actor {
         }
         self.memory.push_back(MemoryEvent { day, text });
     }
+
+    /// Returns (node_index, value) for the dominant node if it's urgent enough to display.
+    pub fn emotion(&self) -> Option<(usize, f32)> {
+        let dom = self.node_graph.dominant_node();
+        let val = self.node_graph.values[dom as usize];
+        if val > 0.62 { Some((dom as usize, val)) } else { None }
+    }
 }

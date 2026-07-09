@@ -7,7 +7,7 @@ mod sim;
 mod render;
 
 use constants::*;
-use sim::world::SimWorld;
+use sim::world::{SimWorld, GlobalEvent};
 use sim::systems::tick;
 use render::draw::{
     draw_tiles, draw_location_labels, draw_actors,
@@ -102,6 +102,22 @@ async fn main() {
         }
         if is_key_pressed(KeyCode::LeftBracket) {
             gs.tick_interval = (gs.tick_interval * 1.6).min(1.0);
+        }
+
+        // ── Global event triggers ──────────────────────────────────────────
+        if is_key_pressed(KeyCode::P) {
+            gs.world.inject_event(GlobalEvent::PitClosure);
+        }
+        if is_key_pressed(KeyCode::E) {
+            gs.world.inject_event(GlobalEvent::Eisteddfod);
+        }
+        if is_key_pressed(KeyCode::H) {
+            gs.world.inject_event(GlobalEvent::HardWinter);
+        }
+        if is_key_pressed(KeyCode::B) {
+            // Bereavement: pick a random actor
+            let id = (get_time() as usize) % gs.world.actors.len();
+            gs.world.inject_event(GlobalEvent::Bereavement { actor_id: id });
         }
 
         // Camera pan (WASD + Arrow keys)

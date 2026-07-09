@@ -150,7 +150,7 @@ fn draw_actor_panel(actor: &Actor, mut y: f32) -> f32 {
 pub fn draw_controls() {
     let y = SCREEN_HEIGHT - 13.0;
     draw_text(
-        "WASD/Arrows: pan  |  Click: select  |  [/]: speed  |  Space: pause  |  Esc: deselect",
+        "WASD: pan  |  Click: select  |  [/]: speed  |  Space: pause  |  P: Pit Closure  |  E: Eisteddfod  |  H: Hard Winter  |  B: Bereavement",
         5.0, y, 10.0, Color::new(0.45, 0.45, 0.50, 1.0),
     );
 }

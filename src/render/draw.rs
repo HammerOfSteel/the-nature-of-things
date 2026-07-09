@@ -148,6 +148,14 @@ pub fn draw_actors(actors: &[Actor], selected: Option<usize>, cam_x: f32, cam_y:
             dark_color,
         );
 
+        // Emotion indicator: small coloured dot above head when a node is urgent
+        if let Some((node_idx, val)) = actor.emotion() {
+            let (er, eg, eb) = NODE_COLORS[node_idx];
+            let alpha = ((val - 0.62) * 2.8).min(1.0) * light;
+            draw_circle(sx + 7.0, head_y - ACTOR_HEAD_R - 2.0, 3.2,
+                Color::new(er, eg, eb, alpha));
+        }
+
         // Selection ring
         if selected == Some(actor.id) {
             draw_circle_lines(sx, by - ACTOR_BODY_H * 0.1,

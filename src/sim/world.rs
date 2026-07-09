@@ -173,6 +173,27 @@ pub fn fbm(x: f32, y: f32, seed: u32, octaves: u32) -> f32 {
     val
 }
 
+// ─── Global Events ────────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug)]
+pub enum GlobalEvent {
+    PitClosure,
+    Eisteddfod,
+    HardWinter,
+    Bereavement { actor_id: usize },
+}
+
+impl GlobalEvent {
+    pub fn label(&self) -> &'static str {
+        match self {
+            GlobalEvent::PitClosure       => "THE PIT HAS CLOSED",
+            GlobalEvent::Eisteddfod       => "EISTEDDFOD",
+            GlobalEvent::HardWinter       => "HARD WINTER",
+            GlobalEvent::Bereavement {..} => "BEREAVEMENT",
+        }
+    }
+}
+
 // ─── SimWorld ─────────────────────────────────────────────────────────────────
 
 pub struct SimWorld {
@@ -183,6 +204,7 @@ pub struct SimWorld {
     pub actors: Vec<Actor>,
     pub clock: WorldClock,
     pub chronicle: VecDeque<String>,
+    pub pending_events: VecDeque<GlobalEvent>,
     pub seed: u64,
 }
 
@@ -380,8 +402,13 @@ impl SimWorld {
             actors,
             clock: WorldClock::new(),
             chronicle: VecDeque::with_capacity(MAX_CHRONICLE),
+            pending_events: VecDeque::new(),
             seed,
         }
+    }
+
+    pub fn inject_event(&mut self, event: GlobalEvent) {
+        self.pending_events.push_back(event);
     }
 
     pub fn find_location(&self, kind: LocationKind) -> Option<&Location> {
