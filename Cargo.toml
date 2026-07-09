@@ -1,0 +1,12 @@
+[package]
+name = "the_nature_of_things"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "the_nature_of_things"
+path = "src/main.rs"
+
+[dependencies]
+macroquad = "0.4"
+rand = "0.8"
