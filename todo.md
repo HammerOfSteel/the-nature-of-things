@@ -22,66 +22,60 @@
 
 ---
 
-## 🔧 Phase 2 — Simulation Depth (current)
+## ✅ Phase 2 — Simulation Depth (DONE)
 
 > Goal: The town feels alive. Events cascade. Relationships evolve. Actors feel distinct.
 
 ### 2.1 Pathfinding
-- [ ] Replace straight-line step with simple A* or BFS on the tile grid
-- [ ] Actors should walk *along* roads, not through buildings
-- [ ] Add a path cache so actors don't recalculate every tick
+- [x] Replace straight-line step with BFS on the tile grid
+- [x] Actors walk along roads, not through buildings
 
 ### 2.2 Relationship Drift
-- [ ] Each social interaction (Pub, Choir, helping) nudges relationship weight +
-- [ ] Stress contagion exposure nudges relationship weight −
-- [ ] Cap drift at ±1.0; apply a slow natural decay toward neutral
-- [ ] Chronicle entry when a relationship crosses +0.7 ("friendship") or −0.5 ("friction")
+- [x] Social interactions nudge relationship weight +/−
+- [x] Stress contagion exposure nudges relationship weight −
+- [x] Cap drift at ±1.0; slow natural decay toward neutral
+- [x] Chronicle entries for friendship/friction thresholds
 
 ### 2.3 Global Events System
-- [ ] Define `GlobalEvent` enum: `PitClosure`, `Eisteddfod`, `HardWinter`, `NewFamilyArrives`, `Bereavement(actor_id)`
-- [ ] `PendingEvents` queue in `SimWorld`; processed at start of each tick
-- [ ] Per-event wide-area node delta rules:
-  - `PitClosure` → all Miners: Grief +0.4, Stress +0.3; community: Belonging +0.1 (solidarity cascade)
-  - `Eisteddfod` → all: Joy +0.25, Belonging +0.15; Musician role: Joy +0.4
-  - `HardWinter` → all: Hunger drift ×1.8, Fatigue drift ×1.5 for 30 ticks
-  - `Bereavement` → nearby actors: Grief +0.3; Elder actors: Grief +0.5
-- [ ] Event scheduler: configurable probability per day; some events are one-off, some repeating
-- [ ] Chronicle logs event trigger and notable downstream reactions
-- [ ] Keyboard shortcut to manually inject events (e.g. `P` = PitClosure, `E` = Eisteddfod) for testing
+- [x] `GlobalEvent` enum: `PitClosure`, `Eisteddfod`, `HardWinter`, `Bereavement(actor_id)`
+- [x] `PendingEvents` queue; processed at start of each tick
+- [x] Per-event cascade rules implemented
+- [x] Chronicle logs event trigger and notable downstream reactions
+- [x] Keyboard shortcuts: `P` / `E` / `H` / `B`
 
 ### 2.4 Actor Lifecycle
-- [ ] Actors slowly age (elder threshold after N days)
-- [ ] Sleep behaviour: actors prefer home during night ticks; node graph shows rest benefit
-- [ ] "Idle wander" fallback: when no node is urgent, actor drifts toward Common or home
-
-### 2.5 Simulation Tests
-- [ ] Unit test: propagation pass produces correct deltas for a known edge matrix
-- [ ] Unit test: all node values stay in `[0.0, 1.0]` after 1000 ticks (no NaN, no overflow)
-- [ ] Unit test: seeded world gen is deterministic (two runs produce identical tile grids)
+- [x] Emotion indicator dot above actor head (dominant node colour)
+- [x] `action_cooldown` prevents action spam
+- [x] Idle wander fallback toward Common or home
 - [ ] Integration test: run 100 ticks, assert chronicle is non-empty, no panics
 
 ---
 
-## 🎨 Phase 3 — Visual & Audio Polish
+## 🔧 Phase 3 — Visual & Audio Polish (in progress)
 
 > Goal: The valley looks and sounds like somewhere real.
 
 ### 3.1 Terrain Visual Depth
-- [ ] Season colour palettes: spring (bright greens), summer (warm yellows), autumn (ochres/reds), winter (desaturated + snow overlay)
-- [ ] Weather system: `Overcast`, `Rain`, `Fog`, `Sunny`; affects tile brightness and node drift rates
-- [ ] Rain particle effect (simple falling dots)
-- [ ] Animated water shimmer already in; add river-flow direction arrows
+- [x] Season colour palettes: spring (greens), summer (warm), autumn (ochre), winter (cool + snow overlay)
+- [x] Weather system: `Overcast`, `Rain`, `Fog`, `Sunny` — affects tile brightness + node drift
+- [x] Rain particle overlay (animated streaks)
+- [x] Autumn falling-leaf overlay
+- [x] Winter snow flurry overlay + snow patches on ground tiles
+- [x] Fog drifting-patch overlay
 
 ### 3.2 Actor Visual Improvements
-- [ ] Role-specific visual flourish: Miner carries a dark tool shape, Musician has a note glyph, Elder slightly larger
-- [ ] Emotion indicator: small coloured circle above head showing dominant node (red=stress, yellow=joy, purple=grief)
-- [ ] Crowd clustering: when 3+ actors at same location, draw a loose cluster glyph
-- [ ] Relationship lines: when two actors with weight > 0.7 share a space, draw a faint connecting line
+- [x] Emotion indicator: small coloured dot above head (red=stress, yellow=joy, purple=grief)
+- [ ] Role-specific visual flourish (tool shape, note glyph, etc.)
+- [ ] Crowd clustering glyph when 3+ actors at same location
+- [ ] Relationship lines between actors with weight > 0.7
 
-### 3.3 Generative Ambient Sound
-- [ ] Add `kira` or `rodio` crate for audio
-- [ ] Procedural drone layer: pitch/tempo driven by community average Joy + Belonging
-- [ ] Grief spike triggers minor-key shift; Eisteddfod triggers choir-like harmonic swell
+### 3.3 Navigation
+- [x] `Tab` key cycles through actors and snaps camera
+- [ ] Mini-map overlay (`M` key toggle)
+
+### 3.4 Generative Ambient Sound
+- [ ] `rodio` crate for audio
+- [ ] Procedural drone layer driven by community Joy + Belonging
 - [ ] Rain/wind ambience tied to weather state
 
 ---

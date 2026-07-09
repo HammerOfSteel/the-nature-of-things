@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use crate::constants::*;
-use crate::sim::actor::Actor;
+use crate::sim::actor::{Actor, Role};
 use crate::sim::world::SimWorld;
 
 const PANEL_X: f32 = VIEWPORT_WIDTH;
@@ -62,8 +62,29 @@ pub fn draw_panel(world: &SimWorld, selected: Option<usize>) {
     // ── Population summary ───────────────────────────────────────────────────
     draw_text("VALLEY", PANEL_X + PAD, cursor_y, 11.0, text_dim());
     cursor_y += 14.0;
-    draw_text(&format!("{} souls", world.actors.len()), PANEL_X + PAD, cursor_y, 11.0, text_main());
-    cursor_y += 18.0;
+    draw_text(&format!("{} souls  |  {}",
+        world.actors.len(), world.weather.label()),
+        PANEL_X + PAD, cursor_y, 11.0, text_main());
+    cursor_y += 14.0;
+
+    // Role breakdown (compact two-column list)
+    let roles = [Role::Miner, Role::Teacher, Role::Shopkeeper, Role::Musician,
+                 Role::Elder, Role::Child, Role::NewArrival];
+    for (i, role) in roles.iter().enumerate() {
+        let count = world.actors.iter().filter(|a| a.role == *role).count();
+        if count == 0 { continue; }
+        let col_x = PANEL_X + PAD + (i % 2) as f32 * 138.0;
+        if i % 2 == 0 && i > 0 { cursor_y += 12.0; }
+        if i % 2 == 0 {
+            draw_text(&format!("{}x {}", count, role.display_name()),
+                col_x, cursor_y, 10.0, text_dim());
+        } else {
+            draw_text(&format!("  {}x {}", count, role.display_name()),
+                col_x - 138.0 + 8.0, cursor_y + 12.0, 10.0, text_dim());
+            cursor_y += 0.0; // will advance below
+        }
+    }
+    cursor_y += 14.0;
 
     draw_line(PANEL_X + PAD, cursor_y, PANEL_X + UI_PANEL_WIDTH - PAD, cursor_y, 1.0, separator());
     cursor_y += 8.0;
@@ -150,7 +171,7 @@ fn draw_actor_panel(actor: &Actor, mut y: f32) -> f32 {
 pub fn draw_controls() {
     let y = SCREEN_HEIGHT - 13.0;
     draw_text(
-        "WASD: pan  |  Click: select  |  [/]: speed  |  Space: pause  |  P: Pit Closure  |  E: Eisteddfod  |  H: Hard Winter  |  B: Bereavement",
+        "WASD: pan  |  Tab: cycle  |  Click: select  |  [/]: speed  |  Space: pause  |  P/E/H/B: events",
         5.0, y, 10.0, Color::new(0.45, 0.45, 0.50, 1.0),
     );
 }

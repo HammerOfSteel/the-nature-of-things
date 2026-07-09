@@ -3,13 +3,14 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use crate::constants::*;
 use super::actor::{Action, NodeId, Role};
-use super::world::{GlobalEvent, LocationKind, SimWorld, TileKind};
+use super::world::{GlobalEvent, LocationKind, SimWorld, TileKind, Weather};
 
 // ─── Main tick entry point ────────────────────────────────────────────────────
 
 pub fn tick(world: &mut SimWorld, rng: &mut StdRng) {
     world.clock.advance();
 
+    update_weather(world, rng);
     process_events(world);
     decay_nodes(world);
     propagate_nodes(world);
@@ -528,5 +529,32 @@ fn update_relationships(world: &mut SimWorld) {
         } else if delta > 0.0 {
             world.actors[from].relationships.push((to, delta));
         }
+    }
+}
+
+// ─── 8. Weather transitions ───────────────────────────────────────────────────
+
+fn update_weather(world: &mut SimWorld, rng: &mut StdRng) {
+    if world.weather_timer > 0 {
+        world.weather_timer -= 1;
+        return;
+    }
+    // Weighted: Sunny most common, Fog rarest
+    let roll: u32 = rng.gen_range(0..10);
+    world.weather = match roll {
+        0 | 1 | 2 | 3 => Weather::Sunny,
+        4 | 5 | 6     => Weather::Overcast,
+        7 | 8         => Weather::Rain,
+        _             => Weather::Fog,
+    };
+    world.weather_timer = rng.gen_range(50u32..140);
+
+    // Log notable weather changes
+    match world.weather {
+        Weather::Rain => world.log(format!(
+            "Day {} — Rain sweeps down the valley.", world.clock.day)),
+        Weather::Fog  => world.log(format!(
+            "Day {} — A thick fog settles over Cwm Newydd.", world.clock.day)),
+        _ => {}
     }
 }

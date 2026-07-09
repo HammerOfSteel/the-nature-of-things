@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 use crate::constants::*;
 use crate::sim::actor::{Actor, Action};
-use crate::sim::world::{SimWorld, TileKind, WorldClock};
+use crate::sim::world::{SimWorld, TileKind, WorldClock, Weather, Season};
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────
 
@@ -35,11 +35,34 @@ fn dim(c: Color, factor: f32) -> Color {
     Color::new(c.r * factor, c.g * factor, c.b * factor, 1.0)
 }
 
+/// Apply season-specific colour tint to outdoor tiles.
+fn season_tint(season: Season, tile: TileKind, r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let outdoor = matches!(tile,
+        TileKind::Grass | TileKind::Bracken | TileKind::Stone
+        | TileKind::Path | TileKind::Mountain);
+    if !outdoor { return (r, g, b); }
+    match season {
+        Season::Spring => (r * 0.95, g * 1.07, b * 0.95),  // fresh, green
+        Season::Summer => (r * 1.05, g * 1.02, b * 0.88),  // warm, bright
+        Season::Autumn => (r * 1.20, g * 0.86, b * 0.70),  // ochre/russet
+        Season::Winter => (r * 0.78, g * 0.83, b * 0.98),  // cold, blue-grey
+    }
+}
+
+/// Simple hash for per-tile snow/variation.
+fn tile_hash(x: i32, y: i32) -> f32 {
+    let h = (x as u32).wrapping_mul(374_761_393)
+        .wrapping_add((y as u32).wrapping_mul(1_103_515_245));
+    (h >> 8) as f32 / (u32::MAX >> 8) as f32
+}
+
 // ─── Tile rendering ───────────────────────────────────────────────────────────
 
 pub fn draw_tiles(world: &SimWorld, cam_x: f32, cam_y: f32) {
-    let light = daylight(&world.clock);
-    let t = get_time() as f32; // for water animation
+    let light   = daylight(&world.clock) * world.weather.brightness();
+    let season  = world.clock.season;
+    let t       = get_time() as f32;
+    let is_winter = matches!(season, Season::Winter);
 
     let x_start = (cam_x / TILE_SIZE) as i32 - 1;
     let y_start = (cam_y / TILE_SIZE) as i32 - 1;
@@ -55,13 +78,16 @@ pub fn draw_tiles(world: &SimWorld, cam_x: f32, cam_y: f32) {
             let noise = world.tile_noise[ty as usize][tx as usize];
 
             let (br, bg, bb) = tile.base_color();
+            let (br, bg, bb) = season_tint(season, tile, br, bg, bb);
 
-            // Water: slight animated shimmer
+            // Water: animated shimmer
             let color = if tile == TileKind::Water || tile == TileKind::DeepWater {
                 let wave = (t * 1.8 + tx as f32 * 0.3 + ty as f32 * 0.2).sin() * 0.04;
                 rgb(br + noise + wave, bg + noise * 0.8 + wave, bb + noise * 0.5)
             } else {
-                rgb(br + noise, bg + noise * 0.9, bb + noise * 0.8)
+                rgb((br + noise).clamp(0.0, 1.0),
+                    (bg + noise * 0.9).clamp(0.0, 1.0),
+                    (bb + noise * 0.8).clamp(0.0, 1.0))
             };
 
             let screen_x = tx as f32 * TILE_SIZE - cam_x;
@@ -69,7 +95,18 @@ pub fn draw_tiles(world: &SimWorld, cam_x: f32, cam_y: f32) {
 
             draw_rectangle(screen_x, screen_y, TILE_SIZE, TILE_SIZE, dim(color, light));
 
-            // Subtle grid lines for buildings to define walls
+            // Winter snow patches on outdoor tiles
+            if is_winter {
+                let outdoor = matches!(tile, TileKind::Grass | TileKind::Path | TileKind::Bracken);
+                if outdoor && tile_hash(tx, ty) > 0.55 {
+                    let snow_alpha = 0.25 + tile_hash(tx + 1, ty) * 0.20;
+                    draw_rectangle(screen_x + 1.0, screen_y + 1.0,
+                        TILE_SIZE - 2.0, TILE_SIZE - 2.0,
+                        Color::new(0.88, 0.90, 0.94, snow_alpha));
+                }
+            }
+
+            // Building wall edge lines
             if tile == TileKind::BuildingWall {
                 draw_rectangle_lines(screen_x, screen_y, TILE_SIZE, TILE_SIZE, 1.0,
                     dim(rgb(0.20, 0.18, 0.16), light));
@@ -201,4 +238,62 @@ pub fn actor_at_screen(actors: &[Actor], sx: f32, sy: f32, cam_x: f32, cam_y: f3
     }
 
     best.map(|(_, id)| id)
+}
+
+// ─── Weather overlay (drawn after tiles, before actors) ───────────────────────
+
+pub fn draw_weather_overlay(weather: Weather, season: Season) {
+    let t = get_time() as f32;
+
+    match weather {
+        Weather::Rain => {
+            // Falling rain streaks
+            for i in 0..140usize {
+                let x = (i as f32 * 31.7 + t * 210.0).rem_euclid(VIEWPORT_WIDTH + 40.0) - 20.0;
+                let y = (i as f32 * 53.1 + t * 290.0).rem_euclid(SCREEN_HEIGHT  + 40.0) - 20.0;
+                draw_line(x, y, x + 1.8, y + 7.0, 1.0,
+                    Color::new(0.68, 0.80, 0.92, 0.38));
+            }
+            draw_rectangle(0.0, 0.0, VIEWPORT_WIDTH, SCREEN_HEIGHT,
+                Color::new(0.08, 0.10, 0.18, 0.12));
+        }
+        Weather::Fog => {
+            // Slow-drifting fog patches
+            for i in 0..6usize {
+                let fx = (i as f32 * 190.0 + t * 18.0).rem_euclid(VIEWPORT_WIDTH + 300.0) - 150.0;
+                let fy = (i as f32 * 97.0  + t *  8.0).rem_euclid(SCREEN_HEIGHT  + 100.0) - 50.0;
+                draw_rectangle(fx, fy, 400.0, 130.0,
+                    Color::new(0.72, 0.76, 0.78, 0.10));
+            }
+            draw_rectangle(0.0, 0.0, VIEWPORT_WIDTH, SCREEN_HEIGHT,
+                Color::new(0.65, 0.70, 0.72, 0.13));
+        }
+        Weather::Overcast => {
+            draw_rectangle(0.0, 0.0, VIEWPORT_WIDTH, SCREEN_HEIGHT,
+                Color::new(0.05, 0.05, 0.10, 0.10));
+        }
+        Weather::Sunny => {}
+    }
+
+    // Winter snow flurries (season overlay, always on in winter regardless of weather)
+    if matches!(season, Season::Winter) {
+        for i in 0..70usize {
+            let x = (i as f32 * 43.1 + t * 45.0 + (t * 0.6).sin() * 15.0)
+                .rem_euclid(VIEWPORT_WIDTH);
+            let y = (i as f32 * 71.3 + t * 62.0).rem_euclid(SCREEN_HEIGHT);
+            draw_circle(x, y, 1.4, Color::new(0.90, 0.93, 0.96, 0.65));
+        }
+    }
+
+    // Autumn falling leaves
+    if matches!(season, Season::Autumn) {
+        for i in 0..30usize {
+            let x = (i as f32 * 83.7 + t * 30.0 + (t * 0.4 + i as f32).sin() * 20.0)
+                .rem_euclid(VIEWPORT_WIDTH);
+            let y = (i as f32 * 59.3 + t * 48.0).rem_euclid(SCREEN_HEIGHT);
+            draw_rectangle(x, y, 3.0, 3.0,
+                Color::new(0.72 + (i as f32 * 0.02).sin() * 0.15,
+                           0.42, 0.15, 0.55));
+        }
+    }
 }

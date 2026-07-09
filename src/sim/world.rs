@@ -78,6 +78,31 @@ pub struct Location {
     pub tile_y: i32,
 }
 
+// ─── Weather ─────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Weather { Sunny, Overcast, Rain, Fog }
+
+impl Weather {
+    pub fn label(self) -> &'static str {
+        match self {
+            Weather::Sunny    => "☀ Sunny",
+            Weather::Overcast => "☁ Overcast",
+            Weather::Rain     => "⛈ Rain",
+            Weather::Fog      => "🌫 Fog",
+        }
+    }
+    /// Visual brightness multiplier (applied on top of daylight)
+    pub fn brightness(self) -> f32 {
+        match self {
+            Weather::Sunny    => 1.10,
+            Weather::Overcast => 0.80,
+            Weather::Rain     => 0.68,
+            Weather::Fog      => 0.74,
+        }
+    }
+}
+
 // ─── WorldClock ───────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug)]
@@ -205,6 +230,8 @@ pub struct SimWorld {
     pub clock: WorldClock,
     pub chronicle: VecDeque<String>,
     pub pending_events: VecDeque<GlobalEvent>,
+    pub weather: Weather,
+    pub weather_timer: u32,
     pub seed: u64,
 }
 
@@ -403,6 +430,8 @@ impl SimWorld {
             clock: WorldClock::new(),
             chronicle: VecDeque::with_capacity(MAX_CHRONICLE),
             pending_events: VecDeque::new(),
+            weather: Weather::Sunny,
+            weather_timer: 90,
             seed,
         }
     }

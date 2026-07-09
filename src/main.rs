@@ -9,10 +9,8 @@ mod render;
 use constants::*;
 use sim::world::{SimWorld, GlobalEvent};
 use sim::systems::tick;
-use render::draw::{
-    draw_tiles, draw_location_labels, draw_actors,
-    update_actor_positions, actor_at_screen,
-};
+use render::draw::{draw_tiles, draw_location_labels, draw_actors,
+    update_actor_positions, actor_at_screen, draw_weather_overlay};
 use render::ui::{draw_panel, draw_controls, draw_pause_overlay};
 
 // ─── Window configuration ─────────────────────────────────────────────────────
@@ -120,6 +118,22 @@ async fn main() {
             gs.world.inject_event(GlobalEvent::Bereavement { actor_id: id });
         }
 
+        // Tab: cycle through actors
+        if is_key_pressed(KeyCode::Tab) {
+            let n = gs.world.actors.len();
+            gs.selected_actor = Some(match gs.selected_actor {
+                None     => 0,
+                Some(id) => (id + 1) % n,
+            });
+            // Snap camera to selected actor
+            if let Some(id) = gs.selected_actor {
+                if let Some(a) = gs.world.actors.iter().find(|a| a.id == id) {
+                    gs.cam_x = (a.pixel_x - VIEWPORT_WIDTH  * 0.5).clamp(0.0, gs.cam_max_x());
+                    gs.cam_y = (a.pixel_y - SCREEN_HEIGHT   * 0.5).clamp(0.0, gs.cam_max_y());
+                }
+            }
+        }
+
         // Camera pan (WASD + Arrow keys)
         let pan = CAM_SPEED * dt;
         if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) {
@@ -180,8 +194,8 @@ async fn main() {
 
         clear_background(Color::new(0.05, 0.05, 0.08, 1.0));
 
-        // Clip rendering to the viewport region
         draw_tiles(&gs.world, gs.cam_x, gs.cam_y);
+        draw_weather_overlay(gs.world.weather, gs.world.clock.season);
         draw_location_labels(&gs.world, gs.cam_x, gs.cam_y);
         draw_actors(&gs.world.actors, gs.selected_actor, gs.cam_x, gs.cam_y, &gs.world.clock);
 
@@ -194,9 +208,9 @@ async fn main() {
         }
 
         // FPS / tick rate info (top-left, outside viewport)
-        let fps_str = format!("FPS:{:.0}  Tick:{:.0}ms  Day:{}  Tick:{}",
+        let fps_str = format!("FPS:{:.0}  {:.0}ms/tick  Day {}  {}",
             get_fps(), gs.tick_interval * 1000.0,
-            gs.world.clock.day, gs.world.clock.tick);
+            gs.world.clock.day, gs.world.weather.label());
         draw_text(&fps_str, 4.0, 12.0, 10.0, Color::new(0.50, 0.50, 0.55, 0.80));
 
         next_frame().await;
