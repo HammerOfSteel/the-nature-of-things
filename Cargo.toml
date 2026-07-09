@@ -7,6 +7,19 @@ edition = "2021"
 name = "the_nature_of_things"
 path = "src/main.rs"
 
+# Visual direction POCs — same simulation, three different renderers
+[[bin]]
+name = "poc_2d"
+path = "src/bin/poc_2d.rs"
+
+[[bin]]
+name = "poc_34"
+path = "src/bin/poc_34.rs"
+
+[[bin]]
+name = "poc_3d"
+path = "src/bin/poc_3d.rs"
+
 [dependencies]
 macroquad = "0.4"
 rand = "0.8"

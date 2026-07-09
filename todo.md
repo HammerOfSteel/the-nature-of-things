@@ -51,7 +51,32 @@
 
 ---
 
-## 🔧 Phase 3 — Visual & Audio Polish (in progress)
+## 🎨 Phase 3.5 — Visual Direction POCs (in progress)
+
+> Three separate renderers sharing the same simulation. Pick one direction to carry forward.
+> Run with: `cargo run --bin poc_2d` | `cargo run --bin poc_34` | `cargo run --bin poc_3d`
+
+### POC-2D: Enhanced Top-Down
+- [ ] Procedural building rooftops (terracotta ridge, chimney, eaves)
+- [ ] Trees as layered canopy circles + trunk
+- [ ] Stone-brick path pattern + grass blade details
+- [ ] Animated water ripples
+
+### POC-34: LTTP-Style 3/4 View (most like Zelda LTTP)
+- [ ] Two-pass renderer: ground first, then elevated objects Y-sorted back-to-front
+- [ ] Buildings: terracotta roof (top face) + plaster wall + windows + door (front face)
+- [ ] Mountains: rocky top + cliff face with crack lines
+- [ ] Trees: layered canopy + visible trunk below
+- [ ] Actors taller and more front-facing (legs visible, pupils in eyes)
+
+### POC-3D: Macroquad 3D Top-Down
+- [ ] Camera3D perspective from above at angle (no new crate needed — macroquad 3D API)
+- [ ] Ground tiles as flat cubes coloured by type
+- [ ] Buildings as taller coloured boxes
+- [ ] Trees as cylinder trunk + sphere canopy
+- [ ] Actors as capsule shapes
+
+---
 
 > Goal: The valley looks and sounds like somewhere real.
 
