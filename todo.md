@@ -65,13 +65,14 @@
 
 ### 3.2 Actor Visual Improvements
 - [x] Emotion indicator: small coloured dot above head (red=stress, yellow=joy, purple=grief)
-- [ ] Role-specific visual flourish (tool shape, note glyph, etc.)
-- [ ] Crowd clustering glyph when 3+ actors at same location
-- [ ] Relationship lines between actors with weight > 0.7
+- [x] Role-specific visual flourish: pickaxe (Miner), book (Teacher), coin (Shopkeeper), note (Musician), stick (Elder), ball (Child), pack (NewArrival)
+- [x] Elder slightly larger, Child slightly smaller
+- [x] Crowd clustering badge: number shown when 3+ actors share a tile
+- [x] Relationship lines: faint green/red lines from selected actor to bonded actors
 
 ### 3.3 Navigation
 - [x] `Tab` key cycles through actors and snaps camera
-- [ ] Mini-map overlay (`M` key toggle)
+- [x] Mini-map overlay (`M` key toggle) — tile overview + actor dots + viewport rect
 
 ### 3.4 Generative Ambient Sound
 - [ ] `rodio` crate for audio

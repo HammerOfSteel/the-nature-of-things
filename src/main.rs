@@ -10,7 +10,8 @@ use constants::*;
 use sim::world::{SimWorld, GlobalEvent};
 use sim::systems::tick;
 use render::draw::{draw_tiles, draw_location_labels, draw_actors,
-    update_actor_positions, actor_at_screen, draw_weather_overlay};
+    update_actor_positions, actor_at_screen, draw_weather_overlay,
+    draw_relationships, draw_minimap};
 use render::ui::{draw_panel, draw_controls, draw_pause_overlay};
 
 // ─── Window configuration ─────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ struct GameState {
     tick_accumulator: f64,
     tick_interval: f64,
     paused: bool,
+    show_minimap: bool,
 }
 
 impl GameState {
@@ -55,6 +57,7 @@ impl GameState {
             tick_accumulator: 0.0,
             tick_interval: DEFAULT_TICK_INTERVAL,
             paused: false,
+            show_minimap: true,
         }
     }
 
@@ -92,6 +95,11 @@ async fn main() {
         // Deselect
         if is_key_pressed(KeyCode::Escape) {
             gs.selected_actor = None;
+        }
+
+        // Mini-map toggle
+        if is_key_pressed(KeyCode::M) {
+            gs.show_minimap = !gs.show_minimap;
         }
 
         // Speed controls
@@ -196,6 +204,7 @@ async fn main() {
 
         draw_tiles(&gs.world, gs.cam_x, gs.cam_y);
         draw_weather_overlay(gs.world.weather, gs.world.clock.season);
+        draw_relationships(&gs.world.actors, gs.selected_actor, gs.cam_x, gs.cam_y, &gs.world.clock);
         draw_location_labels(&gs.world, gs.cam_x, gs.cam_y);
         draw_actors(&gs.world.actors, gs.selected_actor, gs.cam_x, gs.cam_y, &gs.world.clock);
 
@@ -205,6 +214,11 @@ async fn main() {
 
         if gs.paused {
             draw_pause_overlay();
+        }
+
+        // Mini-map (bottom-left, toggle with M)
+        if gs.show_minimap {
+            draw_minimap(&gs.world, gs.cam_x, gs.cam_y);
         }
 
         // FPS / tick rate info (top-left, outside viewport)

@@ -171,7 +171,7 @@ fn draw_actor_panel(actor: &Actor, mut y: f32) -> f32 {
 pub fn draw_controls() {
     let y = SCREEN_HEIGHT - 13.0;
     draw_text(
-        "WASD: pan  |  Tab: cycle  |  Click: select  |  [/]: speed  |  Space: pause  |  P/E/H/B: events",
+        "WASD: pan  |  Tab: cycle  |  Click: select  |  M: map  |  [/]: speed  |  Space: pause  |  P/E/H/B: events",
         5.0, y, 10.0, Color::new(0.45, 0.45, 0.50, 1.0),
     );
 }

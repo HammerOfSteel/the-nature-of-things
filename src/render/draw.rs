@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use crate::constants::*;
-use crate::sim::actor::{Actor, Action};
+use crate::sim::actor::{Actor, Action, Role};
 use crate::sim::world::{SimWorld, TileKind, WorldClock, Weather, Season};
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────
@@ -132,10 +132,62 @@ pub fn draw_location_labels(world: &SimWorld, cam_x: f32, cam_y: f32) {
 
 // ─── Actor rendering ─────────────────────────────────────────────────────────
 
+/// Draw a small role-specific flourish at (sx, by) with given light factor.
+fn draw_role_flourish(role: Role, sx: f32, by: f32, light: f32) {
+    let dark = Color::new(0.12, 0.10, 0.08, 0.85 * light);
+    let gold  = Color::new(0.88, 0.72, 0.20, 0.90 * light);
+    let white = Color::new(0.90, 0.90, 0.95, 0.85 * light);
+
+    match role {
+        // Miner: pickaxe — short handle + angled head
+        Role::Miner => {
+            draw_line(sx + 4.0, by - 2.0, sx + 9.0, by + 4.0, 1.5, dark);
+            draw_line(sx + 7.0, by - 1.0, sx + 10.0, by + 2.5, 2.5, dark);
+        }
+        // Teacher: book — thin rectangle + spine line
+        Role::Teacher => {
+            draw_rectangle(sx + 4.0, by - 4.0, 6.0, 8.0, white);
+            draw_line(sx + 4.5, by - 4.0, sx + 4.5, by + 4.0, 1.0, dark);
+        }
+        // Shopkeeper: coin — small gold circle
+        Role::Shopkeeper => {
+            draw_circle(sx + 7.0, by, 3.2, gold);
+            draw_circle_lines(sx + 7.0, by, 3.2, 0.8, dark);
+        }
+        // Musician: note — circle + stem + flag
+        Role::Musician => {
+            draw_circle(sx + 6.5, by + 3.0, 2.2, dark);
+            draw_line(sx + 8.5, by + 3.0, sx + 8.5, by - 3.0, 1.2, dark);
+            draw_line(sx + 8.5, by - 3.0, sx + 12.0, by - 1.5, 1.0, dark);
+        }
+        // Elder: walking stick — curved top handled as two lines
+        Role::Elder => {
+            draw_line(sx + 5.0, by + 5.0, sx + 5.0, by - 6.0, 1.5, dark);
+            draw_line(sx + 5.0, by - 6.0, sx + 7.5, by - 8.0, 1.5, dark);
+        }
+        // Child: ball — small bouncy dot at feet
+        Role::Child => {
+            draw_circle(sx + 7.0, by + 5.0, 2.5, Color::new(0.85, 0.35, 0.35, 0.75 * light));
+        }
+        // NewArrival: pack — small rectangle on back
+        Role::NewArrival => {
+            draw_rectangle(sx - ACTOR_BODY_W * 0.5 - 4.5, by - 3.0, 4.0, 6.0, dark);
+            draw_rectangle(sx - ACTOR_BODY_W * 0.5 - 4.5, by - 3.0, 4.0, 1.5, white);
+        }
+    }
+}
+
 pub fn draw_actors(actors: &[Actor], selected: Option<usize>, cam_x: f32, cam_y: f32,
                    clock: &WorldClock) {
     let light = daylight(clock);
     let t = get_time() as f32;
+
+    // ── Crowd clustering: count actors per tile ────────────────────────────
+    let mut tile_counts: std::collections::HashMap<(i32, i32), u8> =
+        std::collections::HashMap::new();
+    for a in actors {
+        *tile_counts.entry((a.tile_x, a.tile_y)).or_insert(0) += 1;
+    }
 
     for actor in actors {
         let sx = actor.pixel_x - cam_x + TILE_SIZE * 0.5;
@@ -148,7 +200,13 @@ pub fn draw_actors(actors: &[Actor], selected: Option<usize>, cam_x: f32, cam_y:
         let body_color   = dim(rgb(cr, cg, cb), light);
         let dark_color   = dim(rgb(cr * 0.55, cg * 0.55, cb * 0.55), light);
 
-        // Idle bob: a gentle vertical sine oscillation
+        // Size modifier: Elder slightly bigger, Child slightly smaller
+        let size_f = match actor.role { Role::Elder => 1.18, Role::Child => 0.78, _ => 1.0 };
+        let bw = ACTOR_BODY_W * size_f;
+        let bh = ACTOR_BODY_H * size_f;
+        let hr = ACTOR_HEAD_R * size_f;
+
+        // Idle bob
         let bob = match actor.current_action {
             Action::Walking  => (t * 12.0 + actor.id as f32).sin() * 1.5,
             Action::Singing  => (t * 8.0  + actor.id as f32).sin() * 2.5,
@@ -158,50 +216,79 @@ pub fn draw_actors(actors: &[Actor], selected: Option<usize>, cam_x: f32, cam_y:
         let by = sy + bob;
 
         // Shadow
-        draw_ellipse(sx, sy + ACTOR_BODY_H * 0.4, 5.0, 2.5,
+        draw_ellipse(sx, sy + bh * 0.4, 5.0 * size_f, 2.5,
             0.0, Color::new(0.0, 0.0, 0.0, 0.25 * light));
 
-        // Body (rectangle)
-        draw_rectangle(
-            sx - ACTOR_BODY_W * 0.5,
-            by - ACTOR_BODY_H * 0.5,
-            ACTOR_BODY_W, ACTOR_BODY_H,
-            body_color,
-        );
+        // Body
+        draw_rectangle(sx - bw * 0.5, by - bh * 0.5, bw, bh, body_color);
 
-        // Head (circle)
-        let head_y = by - ACTOR_BODY_H * 0.5 - ACTOR_HEAD_R;
-        draw_circle(sx, head_y, ACTOR_HEAD_R, body_color);
+        // Head
+        let head_y = by - bh * 0.5 - hr;
+        draw_circle(sx, head_y, hr, body_color);
 
-        // Eyes (two tiny white dots)
-        draw_circle(sx - 1.4, head_y - 0.6, 1.0, Color::new(1.0, 1.0, 1.0, 0.9 * light));
-        draw_circle(sx + 1.4, head_y - 0.6, 1.0, Color::new(1.0, 1.0, 1.0, 0.9 * light));
+        // Eyes
+        draw_circle(sx - 1.4, head_y - 0.6, 0.9, Color::new(1.0, 1.0, 1.0, 0.9 * light));
+        draw_circle(sx + 1.4, head_y - 0.6, 0.9, Color::new(1.0, 1.0, 1.0, 0.9 * light));
 
-        // Dark outline on body bottom edge (ground shadow)
-        draw_rectangle(
-            sx - ACTOR_BODY_W * 0.5,
-            by + ACTOR_BODY_H * 0.5 - 2.0,
-            ACTOR_BODY_W, 2.0,
-            dark_color,
-        );
+        // Ground shadow line
+        draw_rectangle(sx - bw * 0.5, by + bh * 0.5 - 2.0, bw, 2.0, dark_color);
 
-        // Emotion indicator: small coloured dot above head when a node is urgent
+        // Role flourish
+        draw_role_flourish(actor.role, sx, by, light);
+
+        // Crowd badge: if 3+ actors share this tile, draw a small number
+        let count = tile_counts.get(&(actor.tile_x, actor.tile_y)).copied().unwrap_or(0);
+        if count >= 3 && selected != Some(actor.id) {
+            draw_text(&format!("{}", count), sx - 3.0, head_y - hr - 6.0, 9.0,
+                Color::new(1.0, 0.90, 0.50, 0.75 * light));
+        }
+
+        // Emotion indicator
         if let Some((node_idx, val)) = actor.emotion() {
             let (er, eg, eb) = NODE_COLORS[node_idx];
             let alpha = ((val - 0.62) * 2.8).min(1.0) * light;
-            draw_circle(sx + 7.0, head_y - ACTOR_HEAD_R - 2.0, 3.2,
+            draw_circle(sx + hr + 3.0, head_y - hr - 2.0, 3.2,
                 Color::new(er, eg, eb, alpha));
         }
 
-        // Selection ring
+        // Selection ring + name
         if selected == Some(actor.id) {
-            draw_circle_lines(sx, by - ACTOR_BODY_H * 0.1,
-                SELECTION_RING_R, 1.5, YELLOW);
-            // Name above
+            draw_circle_lines(sx, by - bh * 0.1, SELECTION_RING_R * size_f, 1.5, YELLOW);
             let name_x = sx - actor.name.len() as f32 * 2.8;
-            draw_text(&actor.name, name_x, head_y - ACTOR_HEAD_R - 4.0, 12.0,
+            draw_text(&actor.name, name_x, head_y - hr - 4.0, 12.0,
                 Color::new(1.0, 1.0, 0.7, 0.90));
         }
+    }
+}
+
+// ─── Relationship lines ───────────────────────────────────────────────────────
+
+/// Draw faint lines from the selected actor to all actors they have a
+/// strong bond with (|weight| > 0.55).  Positive = warm, negative = cold.
+pub fn draw_relationships(actors: &[Actor], selected: Option<usize>,
+                          cam_x: f32, cam_y: f32, clock: &WorldClock) {
+    let id = match selected { Some(id) => id, None => return };
+    let light = daylight(clock);
+
+    let src = match actors.iter().find(|a| a.id == id) { Some(a) => a, None => return };
+    let sx = src.pixel_x - cam_x + TILE_SIZE * 0.5;
+    let sy = src.pixel_y - cam_y + TILE_SIZE * 0.5;
+
+    for (partner_id, weight) in &src.relationships {
+        if weight.abs() < 0.55 { continue; }
+        let partner = match actors.iter().find(|a| a.id == *partner_id) {
+            Some(p) => p, None => continue,
+        };
+        let px = partner.pixel_x - cam_x + TILE_SIZE * 0.5;
+        let py = partner.pixel_y - cam_y + TILE_SIZE * 0.5;
+
+        let alpha = (weight.abs() - 0.55) * 1.8 * light;
+        let color = if *weight > 0.0 {
+            Color::new(0.55, 0.90, 0.55, alpha.min(0.55)) // warm green
+        } else {
+            Color::new(0.90, 0.45, 0.45, alpha.min(0.45)) // cold red
+        };
+        draw_line(sx, sy, px, py, 1.0, color);
     }
 }
 
@@ -296,4 +383,56 @@ pub fn draw_weather_overlay(weather: Weather, season: Season) {
                            0.42, 0.15, 0.55));
         }
     }
+}
+
+// ─── Mini-map ─────────────────────────────────────────────────────────────────
+
+const MM_X: f32 = 8.0;          // bottom-left corner x
+const MM_Y: f32 = SCREEN_HEIGHT - 8.0 - 100.0; // bottom-left corner y
+const MM_W: f32 = 150.0;
+const MM_H: f32 = 100.0;
+const MM_TILE_W: f32 = MM_W / MAP_WIDTH  as f32;
+const MM_TILE_H: f32 = MM_H / MAP_HEIGHT as f32;
+
+/// Compact tile colour for mini-map (no noise, just type).
+fn mm_tile_color(tile: TileKind) -> Color {
+    let (r, g, b) = tile.base_color();
+    Color::new(r, g, b, 1.0)
+}
+
+pub fn draw_minimap(world: &SimWorld, cam_x: f32, cam_y: f32) {
+    // Background
+    draw_rectangle(MM_X - 2.0, MM_Y - 2.0, MM_W + 4.0, MM_H + 4.0,
+        Color::new(0.04, 0.04, 0.06, 0.92));
+    draw_rectangle_lines(MM_X - 2.0, MM_Y - 2.0, MM_W + 4.0, MM_H + 4.0, 1.0,
+        Color::new(0.35, 0.35, 0.42, 1.0));
+
+    // Tiles — drawn as solid rectangles scaled to mini size
+    for ty in 0..MAP_HEIGHT {
+        for tx in 0..MAP_WIDTH {
+            let tile = world.tiles[ty][tx];
+            let mx = MM_X + tx as f32 * MM_TILE_W;
+            let my = MM_Y + ty as f32 * MM_TILE_H;
+            draw_rectangle(mx, my, MM_TILE_W.ceil(), MM_TILE_H.ceil(), mm_tile_color(tile));
+        }
+    }
+
+    // Actor dots
+    for actor in &world.actors {
+        let mx = MM_X + actor.tile_x as f32 * MM_TILE_W + MM_TILE_W * 0.5;
+        let my = MM_Y + actor.tile_y as f32 * MM_TILE_H + MM_TILE_H * 0.5;
+        let (r, g, b) = actor.role.color();
+        draw_circle(mx, my, 1.5, Color::new(r, g, b, 1.0));
+    }
+
+    // Viewport rectangle
+    let vp_x = MM_X + cam_x / (MAP_WIDTH  as f32 * TILE_SIZE) * MM_W;
+    let vp_y = MM_Y + cam_y / (MAP_HEIGHT as f32 * TILE_SIZE) * MM_H;
+    let vp_w = VIEWPORT_WIDTH  / (MAP_WIDTH  as f32 * TILE_SIZE) * MM_W;
+    let vp_h = SCREEN_HEIGHT   / (MAP_HEIGHT as f32 * TILE_SIZE) * MM_H;
+    draw_rectangle_lines(vp_x, vp_y, vp_w, vp_h, 1.0,
+        Color::new(1.0, 1.0, 0.6, 0.80));
+
+    draw_text("M: hide map", MM_X, MM_Y + MM_H + 10.0, 9.0,
+        Color::new(0.45, 0.45, 0.50, 0.80));
 }
