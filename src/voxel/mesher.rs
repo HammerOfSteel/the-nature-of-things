@@ -58,9 +58,10 @@ pub fn build_chunk_mesh(world: &VoxelWorld, cx: usize, cy: usize, cz: usize) -> 
 
     world.chunk_iter(cx, cy, cz, |wx, wy, wz, v| {
         // Guard: stop adding faces once we approach the u16 index limit.
-        // Max safe: 10922 quads = 43688 verts → 65532 indices < 65535.
-        // We keep a 10k vertex margin so individual faces never tip over.
-        if vertices.len() >= 33_000 { return; }
+        // With draw_call_vertex_capacity=65536 and draw_call_index_capacity=98304,
+        // a mesh with 60k verts generates 90k indices — safely under both limits.
+        // Max index VALUE = 59999 < 65535 (u16 max). ✓
+        if vertices.len() >= 60_000 { return; }
 
         if v.is_air() { return; }
 

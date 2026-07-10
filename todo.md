@@ -47,7 +47,8 @@ Visual direction **selected: volumetric 3D voxel world** (`poc_voxel`).
 ### 6.2 Face-Culled Chunk Mesh Extraction
 - [x] `build_chunk_mesh` — one exposed quad per face, directional light multipliers (`src/voxel/mesher.rs`)
 - [x] `ChunkRenderer` — dirty flags, back-to-front sort, `draw_mesh` per chunk (`src/render/draw_voxel.rs`)
-- [x] Safety cap at 60k vertices per chunk to respect u16 index limit
+- [x] Safety cap: 60k vertex guard at TOP of voxel closure (break was wrong — only exited face loop)
+- [x] Fix geometry() overflow: macroquad default `draw_call_vertex_capacity=10k` — raised to 65536 via `macroquad::conf::Conf`
 
 ### 6.3 South Wales Valley Generator
 - [x] V-valley profile with FBM detail, biome layers by elevation (`src/voxel/gen.rs`)
@@ -56,6 +57,9 @@ Visual direction **selected: volumetric 3D voxel world** (`poc_voxel`).
 - [x] Two terrace rows of hollow 2-storey houses with interior furniture
 - [x] Derelict colliery feature (engine house, headframe, coal tip)
 - [x] Occupancy grid: building footprints marked before tree placement — no trees inside houses
+- [x] **4× resolution upgrade**: VS 0.40→0.10, CHUNK 16→64, world 128→512, same 128 chunks
+- [x] **Detailed houses**: depth=24, wall_height=32, two rooms per floor, door 3×8, windows 4×6
+- [x] **Detailed furniture**: bed 6×10 frame+mattress, bookshelf 4×8 with shelves, fireplace with surround+mantle+coal
 
 ### 6.4 Camera & Controls
 - [x] **Orbit mode**: auto-rotate, A/D spin, W/S tilt, scroll zoom
@@ -147,14 +151,14 @@ Building {
 - [x] Furniture library: `Furniture::fireplace/bed/table_and_chairs/bookshelf/pub_bar/pew_row` *(done)*
 - [x] Migrate `stamp_terrace_house` in `gen.rs` to use `build_terrace_house` + `stamp_building` *(done)*
 - [x] Occupancy grid: building footprints + colliery block trees before any stamping *(done)*
-- [ ] Street network: main cobble road + perpendicular side streets + narrow back lanes
+- [x] Street network: main cobble road (16 vox wide) + side streets every 80 vox *(done)*
 - [ ] Block subdivision: street cells → plot rects → `Building` placements
 - [ ] Plot probability table: road-front → terrace; mid-slope → detached; valley bottom → pub/shop
 - [ ] Houses must not float: flatten terrain slab under each plot footprint before stamping
 
 ---
 
-### 🎯 Next up: street network in gen.rs
+### 🎯 Next up: Phase 7.6 — Organic Street Network & Neighbourhood Variety
 
 ---
 
@@ -190,6 +194,49 @@ Building {
 - [x] Coal tip mound *(done)*
 - [ ] Tramway track leading to drift entrance
 - [ ] Rust and ruin details: broken windows, collapsed roof section
+
+---
+
+## 📋 Phase 7.6 — Organic Street Network & Neighbourhood Variety
+
+> Current: two fixed terrace bands at constant Z, straight streets only.
+> Goal: an organic road graph with curves, junctions, and varied neighbourhood types.
+> One row per side of a straight street is the right density — add variety through topology.
+
+### Street Network Graph
+- [ ] Replace fixed `nz_band` with a `StreetGraph { nodes: Vec<IVec2>, edges: Vec<(usize, usize)> }`
+- [ ] Graph generation: start from valley floor road → branch side streets every 60–100 vox → dead-end cul-de-sacs
+- [ ] Road segments follow terrain contours (step the centre line to nearest flat Y, then pave)
+- [ ] Road types: main street (16 vox, cobble), side lane (8 vox), back alley (4 vox, dirt/mud)
+- [ ] Curves: road segments bend with ~20° variance per 40-vox run (interpolate from waypoints)
+- [ ] Intersections: T-junction and 4-way; curb-stone corner detail voxels
+
+### Neighbourhood Types (per street segment)
+Each segment is tagged; house placement and density follow the tag:
+
+| Tag | Description |
+|-----|-------------|
+| `TerracedRow` | Houses 20–32 vox wide packed tight, one row each side |
+| `MixedResidential` | Detached + semi-detached, 4–8 vox gap between, gardens |
+| `VillageCore` | Pub, chapel, school, corner shop around a small green/square |
+| `Farmstead` | 1–2 isolated large houses with barn, yard, animal pens |
+| `OpenHillside` | No houses; trees, heather, sheep pens |
+
+- [ ] Implement `SettlementZone` enum and `zone_for_segment()` based on elevation + distance from valley floor
+- [ ] `TerracedRow` → existing `build_terrace_house()` rows
+- [ ] `VillageCore` → pub (`build_pub()`), chapel, small green of grass voxels
+- [ ] `Farmstead` → wide detached house + barn (new `build_barn()` template)
+
+### Plot & Block Assignment
+- [ ] For each road segment: walk one-voxel band on each side, subdivide into plots by width
+- [ ] Plot = `(x0, z0, width, depth, side)` rect; store in `BlockLayout`
+- [ ] Fill plots with buildings from neighbourhood-type table
+- [ ] Mark all plots in occupancy grid before tree/vegetation pass
+
+### Terrain Adaptation
+- [ ] Detect slope under each road segment; if slope > threshold, add retaining wall voxels
+- [ ] `flatten_plot(world, hmap, x, z, w, d)` — fill low spots with stone, cut high spots to flat
+- [ ] Flat-bottom pockets allowed on hillside: road can cut across the slope horizontally
 
 ---
 
@@ -303,6 +350,44 @@ Building {
 - [ ] `cargo run --release` at 60 fps with full town
 - [ ] macOS ARM64 `.app` bundle
 - [ ] Itch.io page with GIF of a life unfolding
+
+---
+
+## 📋 Phase 12 — Large-Scale Map Generation (Minecraft-Scale)
+
+> Goal: effectively infinite world via chunk streaming. Camera can explore for minutes without hitting an edge.
+> Near-term target: 2km × 2km region (20000×20000 voxels at VS=0.10). Eventually: no hard limit.
+
+### 12.1 Chunk Streaming
+- [ ] Decouple world size from render distance: world = infinite seed space, render = loaded region
+- [ ] `ChunkCache { loaded: HashMap<(i32,i32,i32), Chunk>, queue: VecDeque<ChunkCoord> }`
+- [ ] Load radius: keep N=6 chunks in each direction around camera position (sphere of ~800 chunks)
+- [ ] On camera move: add newly visible chunks to generate queue, remove far chunks from cache
+- [ ] Generate chunks on demand: `generate_chunk(cx, cy, cz, seed)` — deterministic from coords alone
+- [ ] Background generation: spawn a rayon thread pool task per new chunk; mark dirty when done
+
+### 12.2 Infinite Terrain Generation
+- [ ] Move from `generate_wales_valley(wx,wy,wz,seed)` to `generate_region_chunk(cx,cz,seed) -> Chunk`
+- [ ] Global heightmap via multi-octave FBM sampled at chunk coordinates (not pre-computed array)
+- [ ] Region biome assigned per 256-chunk macro-cell: valley / open moorland / river crossing / coastal cliff
+- [ ] Valley corridors connect neighbouring valley macro-cells (rivers flow between them)
+- [ ] Macro-scale features: ridge lines, cwm bowls, river network — all from seeded noise
+
+### 12.3 Settlement Distribution
+- [ ] `settlement_grid(seed, cx, cz)` — returns settlement centre coords every ~300–800 voxels
+- [ ] Each settlement = `SettlementType { Valley Town | Hilltop Farm | River Crossing | Isolated Chapel }`
+- [ ] Street graph generated per settlement at load time from settlement type + local terrain
+- [ ] LOD: distant chunks (>8 chunks) rendered as low-detail (only top surface, no building interiors)
+
+### 12.4 Persistence
+- [ ] Player modifications saved as a diff layer per chunk (sparse `HashMap<IVec3, Vox>`)
+- [ ] `serde_json` + per-chunk `.chunk` files; loaded/unloaded with chunk streaming
+- [ ] Long-term: sim actors persist in a global chronicle independent of render region
+
+### 12.5 Navigation & Minimap
+- [ ] Minimap updated in real time from loaded chunk top surfaces
+- [ ] World map view (M key): macro-scale 2D overview of loaded + generated region biomes
+- [ ] Road network visible on world map; settlement markers
 
 ---
 
