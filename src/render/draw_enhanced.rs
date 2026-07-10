@@ -152,6 +152,29 @@ fn draw_tile_enhanced(tile: TileKind, sx: f32, sy: f32, noise: f32,
             draw_rectangle(sx + 3.0, sy + ts * 0.60, 4.0, 3.0, wc);
             draw_rectangle(sx + ts - 7.0, sy + ts * 0.60, 4.0, 3.0, wc);
         }
+        TileKind::Farmland => {
+            // Tilled soil — dark brown rows
+            draw_rectangle(sx, sy, ts, ts, dim(rgb(0.42, 0.28, 0.15), light));
+            let row_c = dim(rgb(0.30, 0.20, 0.10), light * 0.7);
+            for i in 1..4 {
+                draw_line(sx, sy + ts * i as f32 * 0.25,
+                          sx + ts, sy + ts * i as f32 * 0.25, 1.0, row_c);
+            }
+        }
+        TileKind::Fence => {
+            // Wooden fence posts
+            draw_rectangle(sx, sy, ts, ts, dim(rgb(0.28, 0.50, 0.26), light));
+            let pc = dim(rgb(0.60, 0.44, 0.24), light);
+            draw_rectangle(sx + ts * 0.15, sy + ts * 0.20, 3.0, ts * 0.60, pc);
+            draw_rectangle(sx + ts * 0.55, sy + ts * 0.20, 3.0, ts * 0.60, pc);
+            draw_rectangle(sx + ts * 0.10, sy + ts * 0.35, ts * 0.80, 2.0, pc);
+            draw_rectangle(sx + ts * 0.10, sy + ts * 0.55, ts * 0.80, 2.0, pc);
+        }
+        TileKind::Cobble => {
+            // Stone cobble courtyard
+            let s = rgb(0.44 + noise * 0.06, 0.44 + noise * 0.04, 0.48 + noise * 0.04);
+            draw_rectangle(sx, sy, ts, ts, dim(s, light));
+        }
     }
 }
 

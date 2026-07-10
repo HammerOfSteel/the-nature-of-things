@@ -36,6 +36,9 @@ fn tile_3d(tile: TileKind, noise: f32) -> (Color, f32) {
         TileKind::BuildingFloor=> (rgb(0.34, 0.26, 0.18), 0.12),
         TileKind::BuildingWall => (rgb(0.52 + n*0.04, 0.32 + n*0.03, 0.20), 1.60),
         TileKind::Mountain     => (rgb(0.38 + n*0.06, 0.36 + n*0.04, 0.40 + n*0.04), 2.20),
+        TileKind::Farmland     => (rgb(0.42 + n*0.04, 0.28 + n*0.03, 0.15), 0.60),
+        TileKind::Fence        => (rgb(0.60 + n*0.04, 0.44 + n*0.03, 0.24), 1.20),
+        TileKind::Cobble       => (rgb(0.44 + n*0.06, 0.44 + n*0.04, 0.48), 0.70),
     }
 }
 

@@ -17,6 +17,10 @@ pub enum TileKind {
     BuildingFloor,
     BuildingWall,
     Mountain,
+    // Village-gen additions
+    Farmland,   // tilled soil / crop patch
+    Fence,      // low fence (not walkable)
+    Cobble,     // stone courtyard / square
 }
 
 impl TileKind {
@@ -32,11 +36,17 @@ impl TileKind {
             TileKind::BuildingFloor=> (0.48, 0.44, 0.40),
             TileKind::BuildingWall => (0.55, 0.50, 0.46),
             TileKind::Mountain     => (0.28, 0.26, 0.30),
+            TileKind::Farmland     => (0.55, 0.38, 0.20),
+            TileKind::Fence        => (0.50, 0.42, 0.30),
+            TileKind::Cobble       => (0.45, 0.45, 0.48),
         }
     }
 
     pub fn is_walkable(self) -> bool {
-        !matches!(self, TileKind::DeepWater | TileKind::BuildingWall | TileKind::Mountain)
+        !matches!(self,
+            TileKind::DeepWater | TileKind::BuildingWall |
+            TileKind::Mountain  | TileKind::Fence
+        )
     }
 }
 
@@ -223,6 +233,9 @@ impl GlobalEvent {
 
 pub struct SimWorld {
     pub tiles: Vec<Vec<TileKind>>,
+    /// Per-cell tileset override: Some((col, row)) draws that exact tile from the
+    /// Sunnyside tileset instead of the default tile_src() mapping.
+    pub tile_ids: Vec<Vec<Option<(u8, u8)>>>,
     /// Pre-computed per-tile noise variation (added to base colour at render time)
     pub tile_noise: Vec<Vec<f32>>,
     pub locations: Vec<Location>,
@@ -424,6 +437,7 @@ impl SimWorld {
 
         SimWorld {
             tiles,
+            tile_ids: vec![vec![None; MAP_WIDTH]; MAP_HEIGHT],
             tile_noise,
             locations,
             actors,
@@ -456,6 +470,95 @@ impl SimWorld {
             return TileKind::Mountain;
         }
         self.tiles[y as usize][x as usize]
+    }
+
+    /// Procedurally generate a village using the blueprint system.
+    pub fn generate_village(seed: u64) -> Self {
+        use crate::sim::village_gen;
+
+        let layout = village_gen::generate(seed);
+        let mut rng = StdRng::seed_from_u64(seed ^ 0xBEEF_F00D);
+        let s32 = seed as u32;
+
+        // Per-tile noise
+        let mut tile_noise = vec![vec![0.0f32; MAP_WIDTH]; MAP_HEIGHT];
+        for y in 0..MAP_HEIGHT {
+            for x in 0..MAP_WIDTH {
+                tile_noise[y][x] = (smooth_noise(x as f32 * 0.8, y as f32 * 0.8, s32 + 500) - 0.5) * 0.15;
+            }
+        }
+
+        // Spawn actors at walkable path/grass tiles
+        let welsh_first: &[&str] = &[
+            "Rhys","Dylan","Seren","Anwen","Gareth","Bronwen","Iwan","Catrin",
+            "Emyr","Ffion","Huw","Megan","Llywelyn","Nia","Owen","Gwen",
+            "Caerwyn","Nerys","Dafydd","Lowri","Bethan","Gethin","Elan","Tomos",
+            "Carys","Alun","Eirwen","Prys",
+        ];
+        let welsh_last: &[&str] = &[
+            "Morgan","Evans","Williams","Jones","Davies","Thomas","Hughes",
+            "Price","Lloyd","Rees","Griffiths","Bowen","Lewis","Prosser",
+        ];
+        let roles = [
+            Role::Miner, Role::Miner,
+            Role::Teacher, Role::Shopkeeper,
+            Role::Musician, Role::Elder,
+            Role::Child, Role::Child,
+            Role::NewArrival, Role::Shopkeeper,
+        ];
+
+        let spawns = &layout.spawns;
+        let road_spawns: Vec<&(i32, i32)> = spawns.iter()
+            .filter(|&&(x, y)| {
+                let tk = layout.tiles[y as usize][x as usize];
+                tk == TileKind::Path
+            })
+            .collect();
+
+        let mut actors: Vec<Actor> = Vec::new();
+        for id in 0..ACTOR_COUNT {
+            let first = welsh_first[id % welsh_first.len()];
+            let last  = welsh_last[rng.gen_range(0..welsh_last.len())];
+            let name  = format!("{} {}", first, last);
+            let role  = roles[id % roles.len()];
+
+            let &(tx, ty) = if road_spawns.is_empty() {
+                spawns.get(id % spawns.len().max(1)).unwrap_or(&(5, MAP_HEIGHT as i32 / 2))
+            } else {
+                road_spawns[rng.gen_range(0..road_spawns.len())]
+            };
+
+            let mut actor = Actor::new(id, name, role, tx, ty);
+            actor.home_x = tx;
+            actor.home_y = ty;
+            actors.push(actor);
+        }
+
+        // Basic nearby relationships
+        for i in 0..actors.len() {
+            for j in 0..actors.len() {
+                if i == j { continue; }
+                let dx = (actors[i].tile_x - actors[j].tile_x).abs();
+                let dy = (actors[i].tile_y - actors[j].tile_y).abs();
+                if dx + dy < 12 {
+                    actors[i].relationships.push((j, rng.gen_range(0.1f32..0.5f32)));
+                }
+            }
+        }
+
+        SimWorld {
+            tiles:     layout.tiles,
+            tile_ids:  layout.tile_ids,
+            tile_noise,
+            locations: layout.locations,
+            actors,
+            clock:     WorldClock::new(),
+            chronicle: VecDeque::with_capacity(MAX_CHRONICLE),
+            pending_events: VecDeque::new(),
+            weather:       Weather::Sunny,
+            weather_timer: 90,
+            seed,
+        }
     }
 }
 

@@ -2,3 +2,4 @@
 pub mod constants;
 pub mod sim;
 pub mod render;
+pub mod voxel;

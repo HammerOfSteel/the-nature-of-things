@@ -20,6 +20,34 @@ path = "src/bin/poc_34.rs"
 name = "poc_3d"
 path = "src/bin/poc_3d.rs"
 
+[[bin]]
+name = "poc_sprite"
+path = "src/bin/poc_sprite.rs"
+
+[[bin]]
+name = "poc_sunnyside"
+path = "src/bin/poc_sunnyside.rs"
+
+[[bin]]
+name = "tile_browser"
+path = "src/bin/tile_browser.rs"
+
+[[bin]]
+name = "poc_dreamyland"
+path = "src/bin/poc_dreamyland.rs"
+
+[[bin]]
+name = "poc_cutefantasy"
+path = "src/bin/poc_cutefantasy.rs"
+
+[[bin]]
+name = "poc_farmrpg"
+path = "src/bin/poc_farmrpg.rs"
+
+[[bin]]
+name = "poc_village"
+path = "src/bin/poc_village.rs"
+
 [dependencies]
 macroquad = "0.4"
 rand = "0.8"
