@@ -240,6 +240,91 @@ Each segment is tagged; house placement and density follow the tag:
 
 ---
 
+## 📋 Phase 7.7 — Blueprint System & Modular Preview
+
+> Same modular philosophy as the house component system, scaled up to the whole map.
+> Every geographic/built feature is a `Blueprint` that can be:
+>   (a) previewed in isolation on flat test terrain, and
+>   (b) referenced by the procedural generator or a YAML map file.
+>
+> Like lego: you can hold up a single brick, or assemble a whole town.
+
+### Blueprint Hierarchy
+```
+MapBlueprint
+  └─ RegionBlueprint (valley / moorland / river crossing / coastal)
+       └─ SettlementBlueprint  (TownCentre / TerracedStreet / HighStreet / Village)
+            └─ NeighbourhoodBlueprint  (TerracedRow / MixedResidential / VillageCore / ...)
+                 └─ StreetSegmentBlueprint (straight / curved / cul-de-sac / T-junction)
+                      └─ PlotBlueprint     (one building + garden + path to road)
+                           └─ BuildingBlueprint (uses existing building.rs grammar)
+```
+
+### 7.7.1 Blueprint Trait
+- [ ] Define `Blueprint` trait in `src/voxel/blueprint.rs`:
+  ```rust
+  trait Blueprint {
+      fn name(&self) -> &str;
+      fn bounding_box(&self) -> IVec3;           // max voxel extent (X,Y,Z)
+      fn stamp(&self, world: &mut VoxelWorld, origin: IVec3, seed: u64);
+  }
+  ```
+- [ ] Blanket `previewable()` helper: wraps any Blueprint in a flat 256×128×256 test world with a grass base
+- [ ] Every struct in `building.rs`, `gen.rs` neighbourhood code eventually implements `Blueprint`
+
+### 7.7.2 Preview Runner (`src/bin/preview.rs`)
+- [ ] New binary: `cargo run --bin preview -- <BlueprintName> [seed]`
+- [ ] Enumerates a `BlueprintRegistry` (simple match arm for now) and stamps the named blueprint at world centre
+- [ ] Opens the same macroquad window with fly-cam — no full world, just the preview slab
+- [ ] Examples:
+  - `cargo run --bin preview -- TerracedStreet` — one straight row of 8 houses
+  - `cargo run --bin preview -- VillageCore` — pub + chapel + school + green
+  - `cargo run --bin preview -- HighStreet` — 200-vox commercial strip
+  - `cargo run --bin preview -- TerracedHouse` — single house
+  - `cargo run --bin preview -- WelshValleyRegion` — full valley in mini-map
+
+### 7.7.3 Neighbourhood Blueprints
+- [ ] `TerracedRow` — N×terrace house on each side, 16-vox cobble road between, pavements
+- [ ] `MixedResidential` — mix of detached + semi, 8-vox paths, small front gardens
+- [ ] `VillageCore` — pub + chapel + war memorial + bench + green square; can work on flat or slight slope
+- [ ] `HighStreet` — commercial strip: chippy, mart, corner shop, café, betting shop, newsagent, office above
+- [ ] `SchoolYard` — schoolhouse + fenced tarmac yard + bike sheds + playing field
+- [ ] `IndustrialYard` — workshop, delivery yard, stacked pallets, chain-link fence
+- [ ] `FarmComplex` — farmhouse + two barns + hay bales + pen + muddy track
+
+### 7.7.4 Commercial Buildings (new `building.rs` templates)
+- [ ] `build_chippy()` — narrow shopfront, extractor duct, serving counter + fryer inside
+- [ ] `build_corner_shop()` — wider ground floor, large windows, flat roof, flat upstairs
+- [ ] `build_pub()` — two-storey, frosted glass, sign bracket, snug + bar + cellar
+- [ ] `build_chapel()` — tall gable, pointed windows, small vestry, pews inside
+- [ ] `build_school()` — long, redbrick, arched windows, belfry, cloakrooms
+- [ ] `build_office_block()` — 3–4 storey, strip windows, flat roof, fire escape
+
+### 7.7.5 YAML / RON Map Format
+- [ ] `MapSpec` struct (serde-deserializable):
+  ```rust
+  MapSpec {
+      seed: u64,
+      terrain: TerrainSpec,       // valley / flat / coastal / custom heightmap
+      settlements: Vec<SettlementSpec> {
+          name, centre_xz, kind, orientation_deg, blueprints: Vec<BlueprintRef>
+      }
+  }
+  ```
+- [ ] `cargo run --bin poc_voxel -- --map maps/sunnyside.ron` — load map from file
+- [ ] `S` key in-game saves current world as `world_<seed>.ron`
+- [ ] `L` key loads most recent saved map
+- [ ] Example starter map files: `maps/default_valley.ron`, `maps/highstreet_preview.ron`
+- [ ] Validation: missing blueprints print a helpful error, not a panic
+
+### 7.7.6 Procedural Composition
+- [ ] Procedural generator draws from `BlueprintRegistry` when placing neighbourhoods
+- [ ] Each settlement zone maps to one or more `NeighbourhoodBlueprint` entries
+- [ ] `weight` on each entry allows bias tuning (e.g. 80% TerracedRow, 20% MixedResidential in valley)
+- [ ] Blueprint selection seeded per street segment — same seed always produces same neighbourhood
+
+---
+
 ## 📋 Phase 8 — Building Generation & Interiors
 
 > Goal: Every building is hollow, furnished, and identifiable by type from inside and out.

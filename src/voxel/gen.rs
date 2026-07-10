@@ -30,6 +30,108 @@ fn fbm(x: f32, y: f32) -> f32 {
   + snoise(x*4.0,y*4.0)*0.125 + snoise(x*8.0,y*8.0)*0.063
 }
 
+// ─── Settlement zones & street network ───────────────────────────────────────
+
+/// What gets built along a street segment or in a block between side streets.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SettlementZone {
+    TerracedRow,       // Victorian terraces packed tight — the classic valley look
+    MixedResidential,  // Same build type with wider 8-vox gaps between houses
+    VillageCore,       // Future: pub + chapel + open green; kept clear for now
+    OpenHillside,      // No buildings — trees, bracken, heather only
+}
+
+struct SideStreet {
+    x_centre:         usize,
+    width:            usize,
+    north_end:        usize, // Z of north terminus (smaller Z = uphill / north)
+    south_end:        usize, // Z of south terminus (larger Z)
+    cul_de_sac_north: bool,
+    cul_de_sac_south: bool,
+}
+
+struct StreetNetwork {
+    road_z:      Vec<usize>,               // main road Z-centre per X column
+    road_w:      usize,                    // main road width in voxels (16)
+    sides:       Vec<SideStreet>,
+    /// Outer building-band zone per block between side streets: [north_zone, south_zone]
+    outer_zones: Vec<[SettlementZone; 2]>,
+}
+
+fn zone_from_prob(p: f32) -> SettlementZone {
+    if      p < 0.55 { SettlementZone::TerracedRow }
+    else if p < 0.72 { SettlementZone::MixedResidential }
+    else if p < 0.92 { SettlementZone::OpenHillside }
+    else             { SettlementZone::VillageCore }
+}
+
+/// Build an organic street network for the valley.
+///
+/// The main road curves ±24 vox around the valley centre via smooth noise.
+/// Side streets branch N and S at seeded irregular X intervals (60–120 vox).
+/// Each block between consecutive side streets gets an outer-band SettlementZone.
+fn build_street_network(
+    wx: usize, wz: usize,
+    valley_centre_z: f32,
+    seed: u32,
+) -> StreetNetwork {
+    let s = seed as f32 * 0.013;
+
+    // Main road: snoise wander ±24 vox around valley centre
+    let road_z: Vec<usize> = (0..wx)
+        .map(|x| {
+            let w = snoise(x as f32 / 280.0 + s * 4.1, s * 0.9) * 24.0;
+            (valley_centre_z + w).round().clamp(24.0, wz as f32 - 24.0) as usize
+        })
+        .collect();
+
+    // Side streets at seeded irregular X spacing
+    let mut sides: Vec<SideStreet> = Vec::new();
+    let mut x = 40usize;
+    let mut idx = 0u32;
+    while x + 40 < wx {
+        let spacing = 60 + (nhash(seed as i32 * 3 + idx as i32 * 17, 5) * 64.0) as usize;
+        let zc      = road_z[x.min(wx - 1)];
+        let half_r  = 8usize; // half of 16-vox main road
+
+        // How far each arm extends from the road edge
+        let arm_n = 52 + (nhash(x as i32 * 3 + seed as i32, 77) * 72.0) as usize;
+        let arm_s = 52 + (nhash(x as i32 * 5 + seed as i32, 55) * 72.0) as usize;
+        let w     = if nhash(x as i32 + seed as i32, 29) > 0.5 { 12 } else { 8 };
+
+        sides.push(SideStreet {
+            x_centre:         x,
+            width:            w,
+            north_end:        zc.saturating_sub(half_r + arm_n),
+            south_end:        (zc + half_r + arm_s).min(wz.saturating_sub(8)),
+            cul_de_sac_north: nhash(x as i32 * 7 + seed as i32, 11) > 0.65,
+            cul_de_sac_south: nhash(x as i32 * 9 + seed as i32, 13) > 0.65,
+        });
+
+        x += spacing;
+        idx += 1;
+    }
+
+    // Assign outer building-band zone per block between consecutive side streets
+    let block_xs: Vec<usize> = {
+        let mut v = vec![0usize];
+        v.extend(sides.iter().map(|ss| ss.x_centre));
+        v.push(wx);
+        v
+    };
+    let outer_zones: Vec<[SettlementZone; 2]> = (0..block_xs.len().saturating_sub(1))
+        .map(|i| {
+            let bx = block_xs[i];
+            [
+                zone_from_prob(nhash(bx as i32 * 11 + seed as i32, 33)),
+                zone_from_prob(nhash(bx as i32 * 13 + seed as i32, 44)),
+            ]
+        })
+        .collect();
+
+    StreetNetwork { road_z, road_w: 16, sides, outer_zones }
+}
+
 // ─── Main generator ───────────────────────────────────────────────────────────
 
 pub fn generate_wales_valley(wx: usize, wy: usize, wz: usize, seed: u32) -> VoxelWorld {
@@ -109,17 +211,10 @@ pub fn generate_wales_valley(wx: usize, wy: usize, wz: usize, seed: u32) -> Voxe
     // Trees must not be stamped inside or immediately beside a building.
     let mut occupied: Vec<Vec<bool>> = vec![vec![false; wx]; wz];
 
-    // Mark street corridors first
-    mark_road_occupancy(&hmap, wx, wz, valley_centre_z, valley_half, &mut occupied);
+    // Build the organic street network (curved main road + branching side streets)
+    let network = build_street_network(wx, wz, valley_centre_z, seed);
+    mark_network_occupancy(&network, &hmap, wx, wz, seed, &mut occupied);
 
-    // Two terrace rows per side: lower slope (~nz 0.27) and mid slope (~nz 0.50)
-    // Rows staggered by seed to avoid identical house widths lining up across rows
-    let terrace_bands: [(f32, u32); 2] = [(0.27, 0), (0.50, 7919)];
-    for &(band, seed_off) in &terrace_bands {
-        let rs = seed.wrapping_add(seed_off);
-        plan_terrace_occupancy(&hmap, wx, wz, valley_centre_z, valley_half, true,  band, rs,              &mut occupied);
-        plan_terrace_occupancy(&hmap, wx, wz, valley_centre_z, valley_half, false, band, rs.wrapping_add(1337), &mut occupied);
-    }
     // Also mark a wide strip around the colliery
     let col_x_plan = (nhash(seed as i32 * 7, 5) * (wx - 80) as f32) as usize + 40;
     let col_z_plan = (valley_centre_z + valley_half * 0.45) as usize;
@@ -151,15 +246,11 @@ pub fn generate_wales_valley(wx: usize, wy: usize, wz: usize, seed: u32) -> Voxe
         }
     }
 
-    // ── Road network (valley floor + side streets) ────────────────────────────
-    stamp_roads(&mut world, &hmap, wx, wz, valley_centre_z, valley_half);
+    // ── Road network (curved main road + branching side streets) ─────────────
+    stamp_network_roads(&network, &mut world, &hmap, wx, wz);
 
-    // ── Terraced houses — two rows per side ───────────────────────────────────
-    for &(band, seed_off) in &terrace_bands {
-        let rs = seed.wrapping_add(seed_off);
-        stamp_terrace_row(&mut world, &hmap, wx, wy, wz, valley_centre_z, valley_half, true,  band, rs);
-        stamp_terrace_row(&mut world, &hmap, wx, wy, wz, valley_centre_z, valley_half, false, band, rs.wrapping_add(1337));
-    }
+    // ── Settlement buildings (inner band always TerracedRow, outer zone-driven) ─
+    stamp_network_buildings(&network, &mut world, &hmap, wx, wy, wz, seed);
 
     // ── Derelict colliery (north slope, mid-height) ───────────────────────────
     let col_x = (nhash(seed as i32 * 7, 5) * (wx - 80) as f32) as usize + 40;
@@ -241,145 +332,217 @@ fn stamp_tree(world: &mut VoxelWorld, gx: usize, base_h: usize, gz: usize, seed:
     }
 }
 
-// ─── Road network ─────────────────────────────────────────────────────────────
+// ─── Occupancy ────────────────────────────────────────────────────────────────
 
-/// Mark road corridors in the occupancy grid so trees don't grow on roads.
-fn mark_road_occupancy(
-    _hmap: &[Vec<usize>],
-    wx: usize, wz: usize,
-    valley_centre_z: f32, _valley_half: f32,
-    occupied: &mut Vec<Vec<bool>>,
-) {
-    // Main valley road: 16 voxels wide (was 4, ×4)
-    let road_z_centre = valley_centre_z as usize;
-    for gx in 0..wx {
-        for dz in 0..16usize {
-            let gz = road_z_centre.saturating_sub(6) + dz;
-            if gz < wz { occupied[gz][gx] = true; }
-        }
-    }
-    // Side streets: every 80 voxels along X (was 20, ×4), 16 voxels wide
-    for sx in (40..wx).step_by(80) {
-        for dx in 0..16usize {
-            let gx = sx.saturating_sub(6) + dx;
-            if gx >= wx { continue; }
-            for gz in 0..wz {
-                occupied[gz][gx] = true;
-            }
-        }
-    }
-}
-
-/// Stamp Cobble voxels on road surfaces (called after trees, before houses).
-fn stamp_roads(
-    world: &mut VoxelWorld,
+/// Mark every road corridor and both building bands in the occupancy grid.
+fn mark_network_occupancy(
+    network: &StreetNetwork,
     hmap: &[Vec<usize>],
     wx: usize, wz: usize,
-    valley_centre_z: f32, _valley_half: f32,
-) {
-    let road_z_centre = valley_centre_z as usize;
-
-    // Main valley road (16 vox wide)
-    for gx in 0..wx {
-        for dz in 0..16usize {
-            let gz = road_z_centre.saturating_sub(6) + dz;
-            if gz >= wz { continue; }
-            let h = hmap[gz][gx];
-            if h == 0 { continue; }
-            world.set(gx, h, gz, Vox::Cobble);
-            world.set(gx, h.saturating_sub(1), gz, Vox::Stone);
-        }
-    }
-
-    // Side streets (16 vox wide, every 80 vox along X)
-    for sx in (40..wx).step_by(80) {
-        for dx in 0..16usize {
-            let gx = sx.saturating_sub(6) + dx;
-            if gx >= wx { continue; }
-            for gz in 0..wz {
-                let h = hmap[gz][gx];
-                if h == 0 { continue; }
-                world.set(gx, h, gz, Vox::Cobble);
-                world.set(gx, h.saturating_sub(1), gz, Vox::Stone);
-            }
-        }
-    }
-}
-
-// ─── Occupancy pre-planner ────────────────────────────────────────────────────
-// Mirrors stamp_terrace_row's placement logic but only marks the occupied grid.
-// Called before trees so trees never overlap buildings.
-
-fn plan_terrace_occupancy(
-    hmap: &[Vec<usize>],
-    wx: usize, wz: usize,
-    valley_centre_z: f32, valley_half: f32,
-    north_side: bool,
-    nz_band: f32,   // normalised Z distance from valley centre (0.0=centre, 1.0=ridge)
     seed: u32,
     occupied: &mut Vec<Vec<bool>>,
 ) {
-    let sign: f32 = if north_side { -1.0 } else { 1.0 };
-    let target_z  = ((valley_centre_z + sign * nz_band * valley_half) as usize).clamp(2, wz - 20);
+    let half_r = network.road_w / 2;
 
-    let mut gx = 12usize;
-    let mut house_idx = 0u32;
-    while gx + 40 < wx {
-        let h = hmap[target_z][gx];
-        if h < 30 {
-            gx += 1;
-            continue;
+    // Main road corridor
+    for (x, &zc) in network.road_z.iter().enumerate() {
+        for dz in 0..network.road_w {
+            let gz = zc.saturating_sub(half_r) + dz;
+            if gz < wz { occupied[gz][x] = true; }
         }
-        let var   = nhash(gx as i32 * 31 + seed as i32, house_idx as i32 * 13);
-        let width = 20 + (var * 12.0) as usize;  // 20–32 wide (was 5–7, ×4)
-        let depth = 32usize; // house depth + garden clearance (was 8, ×4)
-
-        // Mark footprint + 4-voxel margin on all sides (was 1, ×4)
-        let margin = 4usize;
-        for fz in 0..depth + margin * 2 {
-            for fx in 0..width + margin * 2 {
-                let mx = gx.saturating_sub(margin) + fx;
-                let mz = target_z.saturating_sub(margin) + fz;
-                if mx < wx && mz < wz {
-                    occupied[mz][mx] = true;
-                }
-            }
+    }
+    // Side street corridors + cul-de-sac pads
+    for ss in &network.sides {
+        let half_s = ss.width / 2;
+        let x0 = ss.x_centre.saturating_sub(half_s);
+        let x1 = (ss.x_centre + half_s + 1).min(wx);
+        for z in ss.north_end..=ss.south_end {
+            for x in x0..x1 { if z < wz { occupied[z][x] = true; } }
         }
+    }
 
-        gx += width + 4;  // 4-voxel gap between houses (was 1)
-        house_idx += 1;
+    // Inner building band (offset 53 from road centre): always TerracedRow
+    mark_band_occ(network, hmap, wx, wz, 53, true,  4, SettlementZone::TerracedRow, 0, wx, seed, occupied);
+    mark_band_occ(network, hmap, wx, wz, 53, false, 4, SettlementZone::TerracedRow, 0, wx, seed.wrapping_add(1337), occupied);
+
+    // Outer building band (offset 97): zone varies per block between side streets
+    let block_xs = block_x_boundaries(network, wx);
+    for (bi, &[nzone, szone]) in network.outer_zones.iter().enumerate() {
+        let (x0, x1) = (block_xs[bi], block_xs[bi + 1]);
+        let gap_n = if nzone == SettlementZone::MixedResidential { 8 } else { 4 };
+        let gap_s = if szone == SettlementZone::MixedResidential { 8 } else { 4 };
+        mark_band_occ(network, hmap, wx, wz, 97, true,  gap_n, nzone, x0, x1, seed.wrapping_add(7919), occupied);
+        mark_band_occ(network, hmap, wx, wz, 97, false, gap_s, szone, x0, x1, seed.wrapping_add(9256), occupied);
     }
 }
 
-// ─── Terrace row ──────────────────────────────────────────────────────────────
+/// Precompute the X-boundary list between consecutive side streets.
+fn block_x_boundaries(network: &StreetNetwork, wx: usize) -> Vec<usize> {
+    let mut v = vec![0usize];
+    v.extend(network.sides.iter().map(|ss| ss.x_centre));
+    v.push(wx);
+    v
+}
 
-fn stamp_terrace_row(
+/// Mark building footprints for one band (inner or outer) within [x_start, x_end).
+fn mark_band_occ(
+    network: &StreetNetwork,
+    hmap: &[Vec<usize>],
+    wx: usize, wz: usize,
+    offset: usize,      // Z offset from road_z[x] to house origin
+    north_side: bool,   // true → house Z = road_z - offset
+    house_gap: usize,   // gap between houses (4 for TerracedRow, 8 for Mixed)
+    zone: SettlementZone,
+    x_start: usize, x_end: usize,
+    seed: u32,
+    occupied: &mut Vec<Vec<bool>>,
+) {
+    if matches!(zone, SettlementZone::OpenHillside | SettlementZone::VillageCore) { return; }
+    let depth  = 32usize;
+    let margin = 4usize;
+    let mut gx = x_start.max(12);
+    let mut hi = 0u32;
+    while gx + 40 < x_end.min(wx) {
+        let zc = network.road_z[gx.min(wx - 1)];
+        let tz = if north_side { zc.saturating_sub(offset) }
+                 else           { (zc + offset).min(wz.saturating_sub(40)) };
+        if hmap[tz.min(wz - 1)][gx] < 30 { gx += 1; continue; }
+        let w = 20 + (nhash(gx as i32 * 31 + seed as i32, hi as i32 * 13) * 12.0) as usize;
+        for fz in 0..depth + margin * 2 {
+            for fx in 0..w + margin * 2 {
+                let mx = gx.saturating_sub(margin) + fx;
+                let mz = tz.saturating_sub(margin) + fz;
+                if mx < wx && mz < wz { occupied[mz][mx] = true; }
+            }
+        }
+        gx += w + house_gap;
+        hi += 1;
+    }
+}
+
+// ─── Road stamping ────────────────────────────────────────────────────────────
+
+fn stamp_network_roads(
+    network: &StreetNetwork,
+    world: &mut VoxelWorld,
+    hmap: &[Vec<usize>],
+    wx: usize, wz: usize,
+) {
+    let half_r = network.road_w / 2;
+
+    // Main road (cobble surface + stone sub-base)
+    for (x, &zc) in network.road_z.iter().enumerate() {
+        for dz in 0..network.road_w {
+            let gz = zc.saturating_sub(half_r) + dz;
+            if gz >= wz { continue; }
+            let h = hmap[gz][x];
+            if h == 0 { continue; }
+            world.set(x, h, gz, Vox::Cobble);
+            if h > 0 { world.set(x, h - 1, gz, Vox::Stone); }
+        }
+    }
+
+    // Side streets + optional cul-de-sac turning pads
+    for ss in &network.sides {
+        let half_s = ss.width / 2;
+        let x0 = ss.x_centre.saturating_sub(half_s);
+        let x1 = (ss.x_centre + half_s + 1).min(wx);
+        for z in ss.north_end..=ss.south_end {
+            for x in x0..x1 {
+                if x >= wx || z >= wz { continue; }
+                let h = hmap[z][x];
+                if h == 0 { continue; }
+                world.set(x, h, z, Vox::Cobble);
+                if h > 0 { world.set(x, h - 1, z, Vox::Stone); }
+            }
+        }
+
+        // Cul-de-sac: 16-vox-wide turning circle at the terminus
+        let pad_half = 8usize;
+        let pad_x0 = ss.x_centre.saturating_sub(pad_half);
+        let pad_x1 = (ss.x_centre + pad_half).min(wx);
+        if ss.cul_de_sac_north {
+            let zpad = ss.north_end;
+            let zpad_end = (zpad + 16).min(wz);
+            for z in zpad..zpad_end { for x in pad_x0..pad_x1 {
+                if x < wx && z < wz {
+                    let h = hmap[z][x];
+                    if h > 0 { world.set(x, h, z, Vox::Cobble); if h > 0 { world.set(x, h-1, z, Vox::Stone); } }
+                }
+            }}
+        }
+        if ss.cul_de_sac_south && ss.south_end >= 16 {
+            let zpad = ss.south_end.saturating_sub(15);
+            for z in zpad..=ss.south_end { for x in pad_x0..pad_x1 {
+                if x < wx && z < wz {
+                    let h = hmap[z][x];
+                    if h > 0 { world.set(x, h, z, Vox::Cobble); if h > 0 { world.set(x, h-1, z, Vox::Stone); } }
+                }
+            }}
+        }
+    }
+}
+
+// ─── Building placement ───────────────────────────────────────────────────────
+
+/// Stamp all buildings for both bands across the network.
+fn stamp_network_buildings(
+    network: &StreetNetwork,
     world: &mut VoxelWorld,
     hmap: &[Vec<usize>],
     wx: usize, wy: usize, wz: usize,
-    valley_centre_z: f32, valley_half: f32,
-    north_side: bool,
-    nz_band: f32,   // normalised Z distance from valley centre
     seed: u32,
 ) {
-    let sign: f32 = if north_side { -1.0 } else { 1.0 };
-    let terrace_z = ((valley_centre_z + sign * nz_band * valley_half) as usize).clamp(2, wz - 20);
+    // Inner band (offset 53): always TerracedRow across full width
+    stamp_road_aligned_row(network, world, hmap, wx, wy, wz,
+        53, true,  4, SettlementZone::TerracedRow, 0, wx, seed);
+    stamp_road_aligned_row(network, world, hmap, wx, wy, wz,
+        53, false, 4, SettlementZone::TerracedRow, 0, wx, seed.wrapping_add(1337));
 
-    // March along X, stamping houses with 4-voxel gaps
-    let mut gx = 12usize;
-    let mut house_idx = 0u32;
-    while gx + 40 < wx {
-        let h = hmap[terrace_z][gx];
-        if h < 30 || h + 60 >= wy {  // need headroom for walls (32) + pitched roof (12) + chimney (8) = 52 + margin
-            gx += 1;
-            continue;
-        }
-        let var = nhash(gx as i32 * 31 + seed as i32, house_idx as i32 * 13);
-        let width = 20 + (var * 12.0) as usize; // 20–32 wide (was 5–7, ×4)
-        let building = build_terrace_house(gx, h, terrace_z, width, north_side, seed ^ house_idx);
+    // Outer band (offset 97): zone driven per block between side streets
+    let block_xs = block_x_boundaries(network, wx);
+    for (bi, &[nzone, szone]) in network.outer_zones.iter().enumerate() {
+        let (x0, x1) = (block_xs[bi], block_xs[bi + 1]);
+        let gap_n = if nzone == SettlementZone::MixedResidential { 8 } else { 4 };
+        let gap_s = if szone == SettlementZone::MixedResidential { 8 } else { 4 };
+        stamp_road_aligned_row(network, world, hmap, wx, wy, wz,
+            97, true,  gap_n, nzone, x0, x1, seed.wrapping_add(7919));
+        stamp_road_aligned_row(network, world, hmap, wx, wy, wz,
+            97, false, gap_s, szone, x0, x1, seed.wrapping_add(9256));
+    }
+}
+
+/// Stamp one row of houses along the main road within x_start..x_end.
+/// `offset` is the Z distance from road_z[x] to the house origin.
+/// `north_side = true`  → house at road_z - offset, face_south = true.
+/// `north_side = false` → house at road_z + offset, face_south = false.
+fn stamp_road_aligned_row(
+    network: &StreetNetwork,
+    world: &mut VoxelWorld,
+    hmap: &[Vec<usize>],
+    wx: usize, wy: usize, wz: usize,
+    offset: usize,
+    north_side: bool,
+    house_gap: usize,
+    zone: SettlementZone,
+    x_start: usize, x_end: usize,
+    seed: u32,
+) {
+    if matches!(zone, SettlementZone::OpenHillside | SettlementZone::VillageCore) { return; }
+    let mut gx = x_start.max(12);
+    let mut hi = 0u32;
+    while gx + 40 < x_end.min(wx) {
+        let zc = network.road_z[gx.min(wx - 1)];
+        let tz = if north_side { zc.saturating_sub(offset) }
+                 else           { (zc + offset).min(wz.saturating_sub(40)) };
+        let h = hmap[tz.min(wz - 1)][gx];
+        if h < 30 || h + 60 >= wy { gx += 1; continue; }
+        let var = nhash(gx as i32 * 31 + seed as i32, hi as i32 * 13);
+        let w   = 20 + (var * 12.0) as usize;
+        let building = build_terrace_house(gx, h, tz, w, north_side, seed ^ hi);
         stamp_building(world, &building);
-        gx += width + 4;  // 4-voxel gap between houses
-        house_idx += 1;
+        gx += w + house_gap;
+        hi += 1;
     }
 }
 
